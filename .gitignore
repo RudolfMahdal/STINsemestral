@@ -1,0 +1,11 @@
+# Virtuální prostředí a cache
+venv/
+__pycache__/
+.pytest_cache/
+
+# Konfigurace a databáze
+.env
+*.db
+
+# VS Code nastavení (volitelné, ale doporučené)
+.vscode/
