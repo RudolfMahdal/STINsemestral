@@ -56,13 +56,18 @@ def get_rates():
     
 @app.get("/api/v1/analyze")
 def analyze_rates():
-    """Vypočítá nejsilnější, nejslabší měnu a průměr."""
+    """
+    Calculates the strongest, weakest currency and the average.
+    """
     data = exchange_client.get_latest_rates()
-    rates = data.get("rates", {})
+    
+    # Podpora pro původní DSP formát i pro nový formát reálného API
+    rates = data.get("rates") or data.get("quotes", {})
+    base_currency = data.get("base") or data.get("source")
     
     return {
-        "base_currency": data.get("base"),
-        "date": data.get("date"),
+        "base_currency": base_currency,
+        "date": data.get("date") or data.get("timestamp"),
         "strongest_currency": get_strongest_currency(rates),
         "weakest_currency": get_weakest_currency(rates),
         "average_rate": calculate_average(rates),
