@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from app.core.analyzer import get_strongest_currency, get_weakest_currency, calculate_average
 from app.infrastructure.database import engine, Base, get_db
 from app.core import models
-
+from app.core.security import verify_credentials
 # Load environment variables from .env file
 load_dotenv()
 API_KEY = os.getenv("EXCHANGERATE_API_KEY")
@@ -75,7 +75,7 @@ def read_root():
     return {"status": "ok", "message": "Currency Analyzer API is running!"}
 
 @app.get("/api/v1/rates")
-def get_rates():
+def get_rates(username: str = Depends(verify_credentials)):
     """
     Retrieves the latest raw currency rates.
     """
@@ -86,7 +86,7 @@ def get_rates():
         raise HTTPException(status_code=500, detail=f"Error communicating with API: {str(e)}")
     
 @app.get("/api/v1/analyze")
-def analyze_rates():
+def analyze_rates(username: str = Depends(verify_credentials)):
     """
     Calculates the strongest, weakest currency and the average.
     Supports both the original DSP format and the real API format.
@@ -106,7 +106,7 @@ def analyze_rates():
     }
 
 @app.get("/api/v1/settings")
-def get_user_settings(db: Session = Depends(get_db)):
+def get_user_settings(db: Session = Depends(get_db), username: str = Depends(verify_credentials)):
     """
     Retrieves user settings from the database. 
     If no settings exist (first run), creates default settings.
@@ -122,7 +122,7 @@ def get_user_settings(db: Session = Depends(get_db)):
     return settings
 
 @app.put("/api/v1/settings")
-def update_user_settings(new_settings: SettingsUpdate, db: Session = Depends(get_db)):
+def update_user_settings(new_settings: SettingsUpdate, db: Session = Depends(get_db), username: str = Depends(verify_credentials)):
     """
     Updates the user's preferred currencies in the persistent database.
     """
