@@ -1,4 +1,5 @@
 import os
+import time
 import httpx
 from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from app.core import models
 from app.core.security import verify_credentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+
 # Load environment variables from .env file
 load_dotenv()
 API_KEY = os.getenv("EXCHANGERATE_API_KEY")
@@ -23,6 +25,10 @@ app = FastAPI(
     description="REST API for currency rate analysis (STIN 2026)",
     version="0.1.0"
 )
+
+# --- IN-MEMORY CACHE ---
+API_CACHE = {}
+CACHE_TTL_SECONDS = 600
 
 class SettingsUpdate(BaseModel):
     """
@@ -104,10 +110,24 @@ def analyze_rates(
     base_curr = settings.base_currency if settings else "EUR"
     symbols = settings.selected_currencies if settings else "USD,CZK,GBP"
     
-    data = exchange_client.get_latest_rates(base=base_curr, symbols=symbols)
+    cache_key = f"{base_curr}_{symbols}"
+    current_time = time.time()
+
+    # --- CACHE LOGIKA ---
+    if cache_key in API_CACHE and (current_time - API_CACHE[cache_key]["timestamp"]) < CACHE_TTL_SECONDS:
+        rates_data = API_CACHE[cache_key]["data"]
+        logger.info(f"CACHE HIT: Returning data from memory for key {cache_key}")
+    else:
+        rates_data = exchange_client.get_latest_rates(base_curr, symbols)
+        if rates_data and rates_data.get("success"):
+            API_CACHE[cache_key] = {
+                "timestamp": current_time,
+                "data": rates_data
+            }
+            logger.info(f"API CALL: New data from internet cached for key {cache_key}")
     
-    all_rates = data.get("rates") or data.get("quotes", {})
-    actual_base = data.get("base") or data.get("source") or base_curr
+    all_rates = rates_data.get("rates") or rates_data.get("quotes", {})
+    actual_base = rates_data.get("base") or rates_data.get("source") or base_curr
     
     requested_symbols = [s.strip().upper() for s in symbols.split(",")]
     filtered_rates = {}
@@ -125,7 +145,7 @@ def analyze_rates(
     logger.info(f"User '{username}' ran analysis for base '{actual_base}' and symbols '{symbols}'")
     return {
         "base_currency": actual_base,
-        "date": data.get("date") or data.get("timestamp"),
+        "date": rates_data.get("date") or rates_data.get("timestamp"),
         "strongest_currency": get_strongest_currency(rates_to_analyze),
         "weakest_currency": get_weakest_currency(rates_to_analyze),
         "average_rate": calculate_average(rates_to_analyze),

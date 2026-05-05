@@ -8,16 +8,18 @@
         body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f9; color: #333; }
         .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         h1, h2 { color: #2c3e50; }
-        .grid { display: flex; gap: 20px; margin-bottom: 20px; }
-        .card { flex: 1; padding: 15px; background: #ecf0f1; border-radius: 5px; text-align: center; }
+        .grid { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
+        .card { flex: 1; min-width: 150px; padding: 15px; background: #ecf0f1; border-radius: 5px; text-align: center; }
         .value { font-size: 24px; font-weight: bold; color: #e74c3c; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
         th { background: #34495e; color: white; }
-        .auth-box { margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; background: #fff3cd; }
-        input, button { padding: 8px; margin: 5px 0; }
-        button { background: #3498db; color: white; border: none; cursor: pointer; border-radius: 4px;}
+        .auth-box { margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; background: #fff3cd; border-radius: 5px; }
+        .settings-box { margin-bottom: 20px; padding: 15px; border: 1px solid #bce8f1; background: #d9edf7; border-radius: 5px; }
+        input, button { padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; }
+        button { background: #3498db; color: white; border: none; cursor: pointer; }
         button:hover { background: #2980b9; }
+        .success-msg { color: #27ae60; font-weight: bold; display: none; margin-left: 10px; }
     </style>
 </head>
 <body>
@@ -29,6 +31,7 @@
     <div id="app-error" style="display: none; background: #f8d7da; color: #721c24; padding: 10px; border: 1px solid #f5c6cb; border-radius: 5px; margin-bottom: 20px;">
         <strong>Error:</strong> <span id="error-text"></span>
     </div>
+
     <!-- Login Section -->
     <div class="auth-box" id="auth-section">
         <h3>Admin Login (Required for API)</h3>
@@ -36,6 +39,19 @@
         <input type="password" id="password" placeholder="Password">
         <button onclick="loadData()">Load Data</button>
         <p id="error-msg" style="color: red; display: none;">Login failed. Check credentials.</p>
+    </div>
+
+    <!-- Settings Section -->
+    <div class="settings-box" id="settings-section" style="display: none;">
+        <h3>⚙️ Configuration</h3>
+        <label>Base Currency:</label>
+        <input type="text" id="input-base" style="width: 60px;">
+        
+        <label style="margin-left: 15px;">Compare to (comma separated):</label>
+        <input type="text" id="input-symbols" style="width: 200px;">
+        
+        <button onclick="saveSettings()" style="margin-left: 10px; background: #2ecc71;">Save & Recalculate</button>
+        <span id="save-msg" class="success-msg">Saved!</span>
     </div>
 
     <!-- Data Section -->
@@ -67,7 +83,6 @@
                 </tr>
             </thead>
             <tbody id="rates-table">
-                <!-- Data will be injected here via JS -->
             </tbody>
         </table>
     </div>
@@ -85,16 +100,19 @@
 
     function showError(message) {
         const errDiv = document.getElementById('app-error');
-        document.getElementById('error-text').innerText = message;
-        errDiv.style.display = 'block';
+        if (errDiv) {
+            document.getElementById('error-text').innerText = message;
+            errDiv.style.display = 'block';
+        }
     }
 
     function hideError() {
-        document.getElementById('app-error').style.display = 'none';
+        const errDiv = document.getElementById('app-error');
+        if (errDiv) errDiv.style.display = 'none';
     }
 
     async function loadData() {
-        hideError(); // Reset errors on new request
+        hideError(); 
         const authError = document.getElementById('error-msg');
         const dataSection = document.getElementById('data-section');
         const settingsSection = document.getElementById('settings-section');
@@ -102,10 +120,10 @@
         try {
             const response = await fetch('/api/v1/analyze', { method: 'GET', headers: getAuthHeaders() });
             
-           if (response.status === 401 || response.status === 403) {
-                authError.style.display = 'block';
-                dataSection.style.display = 'none';
-                settingsSection.style.display = 'none';
+            if (response.status === 401 || response.status === 403) {
+                if (authError) authError.style.display = 'block';
+                if (dataSection) dataSection.style.display = 'none';
+                if (settingsSection) settingsSection.style.display = 'none';
                 return;
             }
             
@@ -116,23 +134,34 @@
                 return;
             }
             
-            authError.style.display = 'none';
-            dataSection.style.display = 'block';
-            settingsSection.style.display = 'block';
+            if (authError) authError.style.display = 'none';
+            if (dataSection) dataSection.style.display = 'block';
+            if (settingsSection) settingsSection.style.display = 'block';
 
             document.getElementById('input-base').value = data.settings_used.base;
             document.getElementById('input-symbols').value = data.settings_used.symbols;
 
-            // Upozornění, pokud API ignorovalo změnu Base měny (časté u free API)
             if (data.settings_used.base !== data.base_currency) {
                 showError(`Warning: You requested base '${data.settings_used.base}', but the Free API forced '${data.base_currency}'.`);
             }
 
             document.getElementById('base-curr').innerText = data.base_currency;
-            document.getElementById('date-val').innerText = new Date(data.date * 1000).toLocaleDateString() || data.date;
+            
+            let dateStr = data.date;
+            if (typeof data.date === 'number') {
+                dateStr = new Date(data.date * 1000).toLocaleDateString();
+            }
+            document.getElementById('date-val').innerText = dateStr;
+            
             document.getElementById('strongest').innerText = data.strongest_currency;
             document.getElementById('weakest').innerText = data.weakest_currency;
-            document.getElementById('average').innerText = data.average_rate.toFixed(4);
+            
+            const avgElem = document.getElementById('average');
+            if (data.average_rate && typeof data.average_rate === 'number') {
+                avgElem.innerText = data.average_rate.toFixed(4);
+            } else {
+                avgElem.innerText = data.average_rate;
+            }
 
             const tbody = document.getElementById('rates-table');
             tbody.innerHTML = "";
@@ -174,9 +203,10 @@
 
             if (response.ok) {
                 const msg = document.getElementById('save-msg');
-                msg.style.display = 'inline';
-                setTimeout(() => msg.style.display = 'none', 2000);
-                
+                if (msg) {
+                    msg.style.display = 'inline';
+                    setTimeout(() => msg.style.display = 'none', 2000);
+                }
                 loadData();
             } else {
                 showError(data.detail || "Failed to save settings.");
