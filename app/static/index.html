@@ -24,7 +24,7 @@
 
 <div class="container">
     <h1>Currency Analyzer 📈</h1>
-    
+
     <!-- Global Error Banner -->
     <div id="app-error" style="display: none; background: #f8d7da; color: #721c24; padding: 10px; border: 1px solid #f5c6cb; border-radius: 5px; margin-bottom: 20px;">
         <strong>Error:</strong> <span id="error-text"></span>
@@ -102,7 +102,7 @@
         try {
             const response = await fetch('/api/v1/analyze', { method: 'GET', headers: getAuthHeaders() });
             
-            if (response.status === 401) {
+           if (response.status === 401 || response.status === 403) {
                 authError.style.display = 'block';
                 dataSection.style.display = 'none';
                 settingsSection.style.display = 'none';
