@@ -93,28 +93,39 @@ def analyze_rates(
     """
     Calculates the strongest, weakest currency and the average
     based on the user's saved settings in the database.
+    Ensures external API data is properly filtered.
     """
-    # 1. Fetch user settings from DB
     settings = db.query(models.UserSettings).filter(models.UserSettings.id == 1).first()
     
-    # 2. Set defaults if no settings exist yet
     base_curr = settings.base_currency if settings else "EUR"
     symbols = settings.selected_currencies if settings else "USD,CZK,GBP"
     
-    # 3. Fetch data from external API using user's preferences
     data = exchange_client.get_latest_rates(base=base_curr, symbols=symbols)
     
-    # Support for both the original DSP format and the real API format
-    rates = data.get("rates") or data.get("quotes", {})
-    actual_base = data.get("base") or data.get("source")
+    all_rates = data.get("rates") or data.get("quotes", {})
+    actual_base = data.get("base") or data.get("source") or base_curr
+    
+    # --- FIX: Filter only requested currencies ---
+    requested_symbols = [s.strip().upper() for s in symbols.split(",")]
+    filtered_rates = {}
+    
+    for sym in requested_symbols:
+        # Match exact symbol (e.g., 'JPY') or prefixed symbol (e.g., 'USDJPY')
+        if sym in all_rates:
+            filtered_rates[sym] = all_rates[sym]
+        elif f"{actual_base}{sym}" in all_rates:
+            filtered_rates[f"{actual_base}{sym}"] = all_rates[f"{actual_base}{sym}"]
+            
+    # Fallback to all rates if filtering fails completely
+    rates_to_analyze = filtered_rates if filtered_rates else all_rates
     
     return {
         "base_currency": actual_base,
         "date": data.get("date") or data.get("timestamp"),
-        "strongest_currency": get_strongest_currency(rates),
-        "weakest_currency": get_weakest_currency(rates),
-        "average_rate": calculate_average(rates),
-        "analyzed_rates": rates,
+        "strongest_currency": get_strongest_currency(rates_to_analyze),
+        "weakest_currency": get_weakest_currency(rates_to_analyze),
+        "average_rate": calculate_average(rates_to_analyze),
+        "analyzed_rates": rates_to_analyze,
         "settings_used": {
             "base": base_curr,
             "symbols": symbols
