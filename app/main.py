@@ -9,6 +9,8 @@ from app.core.analyzer import get_strongest_currency, get_weakest_currency, calc
 from app.infrastructure.database import engine, Base, get_db
 from app.core import models
 from app.core.security import verify_credentials
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 # Load environment variables from .env file
 load_dotenv()
 API_KEY = os.getenv("EXCHANGERATE_API_KEY")
@@ -168,3 +170,15 @@ def update_user_settings(new_settings: SettingsUpdate, db: Session = Depends(get
     db.refresh(settings)
     logger.info(f"User '{username}' updated settings to base: {new_settings.base_currency}, symbols: {new_settings.selected_currencies}")
     return {"message": "Settings updated successfully", "settings": settings}
+
+# --- FRONTEND ---
+import os
+os.makedirs("app/static", exist_ok=True) # Ensure the folder exists
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+@app.get("/dashboard")
+def get_dashboard():
+    """
+    Redirects to the main frontend dashboard.
+    """
+    return RedirectResponse(url="/static/index.html")
