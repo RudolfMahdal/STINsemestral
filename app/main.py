@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from dotenv import load_dotenv
-
+from app.core.logger import logger
 from app.core.analyzer import get_strongest_currency, get_weakest_currency, calculate_average
 from app.infrastructure.database import engine, Base, get_db
 from app.core import models
@@ -81,10 +81,12 @@ def get_rates(username: str = Depends(verify_credentials)):
     """
     try:
         data = exchange_client.get_latest_rates()
+        logger.info(f"User '{username}' successfully fetched raw rates.")
         return data
     except Exception as e:
+        logger.error(f"Error fetching rates for user '{username}': {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error communicating with API: {str(e)}")
-    
+        
 @app.get("/api/v1/analyze")
 def analyze_rates(
     db: Session = Depends(get_db), 
@@ -105,7 +107,6 @@ def analyze_rates(
     all_rates = data.get("rates") or data.get("quotes", {})
     actual_base = data.get("base") or data.get("source") or base_curr
     
-    # --- FIX: Filter only requested currencies ---
     requested_symbols = [s.strip().upper() for s in symbols.split(",")]
     filtered_rates = {}
     
@@ -119,6 +120,7 @@ def analyze_rates(
     # Fallback to all rates if filtering fails completely
     rates_to_analyze = filtered_rates if filtered_rates else all_rates
     
+    logger.info(f"User '{username}' ran analysis for base '{actual_base}' and symbols '{symbols}'")
     return {
         "base_currency": actual_base,
         "date": data.get("date") or data.get("timestamp"),
@@ -164,5 +166,5 @@ def update_user_settings(new_settings: SettingsUpdate, db: Session = Depends(get
     
     db.commit()
     db.refresh(settings)
-    
+    logger.info(f"User '{username}' updated settings to base: {new_settings.base_currency}, symbols: {new_settings.selected_currencies}")
     return {"message": "Settings updated successfully", "settings": settings}
