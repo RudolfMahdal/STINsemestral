@@ -27,6 +27,11 @@
 <div class="container">
     <h1>Currency Analyzer 📈</h1>
 
+    <!-- Global Error Banner -->
+    <div id="app-error" style="display: none; background: #f8d7da; color: #721c24; padding: 10px; border: 1px solid #f5c6cb; border-radius: 5px; margin-bottom: 20px;">
+        <strong>Error:</strong> <span id="error-text"></span>
+    </div>
+    
     <!-- Login Section -->
     <div class="auth-box" id="auth-section">
         <h3>Admin Login</h3>
@@ -94,8 +99,19 @@
         return headers;
     }
 
+    function showError(message) {
+        const errDiv = document.getElementById('app-error');
+        document.getElementById('error-text').innerText = message;
+        errDiv.style.display = 'block';
+    }
+
+    function hideError() {
+        document.getElementById('app-error').style.display = 'none';
+    }
+
     async function loadData() {
-        const errorMsg = document.getElementById('error-msg');
+        hideError(); // Reset errors on new request
+        const authError = document.getElementById('error-msg');
         const dataSection = document.getElementById('data-section');
         const settingsSection = document.getElementById('settings-section');
         
@@ -103,46 +119,60 @@
             const response = await fetch('/api/v1/analyze', { method: 'GET', headers: getAuthHeaders() });
             
             if (response.status === 401) {
-                errorMsg.style.display = 'block';
+                authError.style.display = 'block';
                 dataSection.style.display = 'none';
                 settingsSection.style.display = 'none';
                 return;
             }
             
             const data = await response.json();
+
+            if (!response.ok) {
+                showError(data.detail || "Failed to load data from server.");
+                return;
+            }
             
-            // Show UI
-            errorMsg.style.display = 'none';
+            authError.style.display = 'none';
             dataSection.style.display = 'block';
             settingsSection.style.display = 'block';
 
-            // Populate Settings inputs with current DB values
             document.getElementById('input-base').value = data.settings_used.base;
             document.getElementById('input-symbols').value = data.settings_used.symbols;
 
-            // Populate dashboard
+            if (data.settings_used.base !== data.base_currency) {
+                showError(`Warning: You requested base '${data.settings_used.base}', but the Free API forced '${data.base_currency}'.`);
+            }
+
             document.getElementById('base-curr').innerText = data.base_currency;
             document.getElementById('date-val').innerText = new Date(data.date * 1000).toLocaleDateString() || data.date;
             document.getElementById('strongest').innerText = data.strongest_currency;
             document.getElementById('weakest').innerText = data.weakest_currency;
             document.getElementById('average').innerText = data.average_rate.toFixed(4);
 
-            // Populate table
             const tbody = document.getElementById('rates-table');
             tbody.innerHTML = "";
-            for (const [currency, rate] of Object.entries(data.analyzed_rates)) {
-                tbody.innerHTML += `<tr><td>${currency}</td><td>${rate}</td></tr>`;
+            if (data.analyzed_rates) {
+                for (const [currency, rate] of Object.entries(data.analyzed_rates)) {
+                    tbody.innerHTML += `<tr><td>${currency}</td><td>${rate}</td></tr>`;
+                }
             }
 
         } catch (error) {
             console.error('Error:', error);
+            showError("Network error: Could not connect to the API.");
         }
     }
 
     async function saveSettings() {
-        const newBase = document.getElementById('input-base').value.toUpperCase();
-        const newSymbols = document.getElementById('input-symbols').value.toUpperCase();
+        hideError();
+        const newBase = document.getElementById('input-base').value.toUpperCase().trim();
+        const newSymbols = document.getElementById('input-symbols').value.toUpperCase().trim();
         
+        if (!newBase || !newSymbols) {
+            showError("Base currency and symbols cannot be empty.");
+            return;
+        }
+
         const payload = {
             base_currency: newBase,
             selected_currencies: newSymbols
@@ -155,19 +185,20 @@
                 body: JSON.stringify(payload)
             });
 
+            const data = await response.json();
+
             if (response.ok) {
-                // Show success text briefly
                 const msg = document.getElementById('save-msg');
                 msg.style.display = 'inline';
                 setTimeout(() => msg.style.display = 'none', 2000);
                 
-                // Automatically reload data with new settings!
                 loadData();
             } else {
-                alert("Failed to save settings.");
+                showError(data.detail || "Failed to save settings.");
             }
         } catch (error) {
             console.error('Error saving settings:', error);
+            showError("Network error while saving settings.");
         }
     }
 </script>
