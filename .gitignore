@@ -9,3 +9,5 @@ __pycache__/
 
 # VS Code nastavení (volitelné, ale doporučené)
 .vscode/
+
+.coverage
