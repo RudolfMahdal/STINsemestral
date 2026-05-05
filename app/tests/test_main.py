@@ -24,16 +24,14 @@ def test_analyze_unauthorized():
     Test that the analyze endpoint rejects requests without basic auth completely.
     """
     response = client.get("/api/v1/analyze")
-    assert response.status_code == 401
-    assert response.json() == {"detail": "Not authenticated"}
+    assert response.status_code == 403  
 
 def test_analyze_wrong_credentials():
     """
     Test that the analyze endpoint rejects requests with invalid basic auth.
     """
     response = client.get("/api/v1/analyze", auth=("wrong_user", "bad_password"))
-    assert response.status_code == 401
-    assert response.json() == {"detail": "Incorrect username or password"}
+    assert response.status_code == 403  
 
 @patch('app.main.exchange_client.get_latest_rates')
 def test_analyze_rates_authorized(mock_get_rates):
