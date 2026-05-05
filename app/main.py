@@ -86,23 +86,39 @@ def get_rates(username: str = Depends(verify_credentials)):
         raise HTTPException(status_code=500, detail=f"Error communicating with API: {str(e)}")
     
 @app.get("/api/v1/analyze")
-def analyze_rates(username: str = Depends(verify_credentials)):
+def analyze_rates(
+    db: Session = Depends(get_db), 
+    username: str = Depends(verify_credentials)
+):
     """
-    Calculates the strongest, weakest currency and the average.
-    Supports both the original DSP format and the real API format.
+    Calculates the strongest, weakest currency and the average
+    based on the user's saved settings in the database.
     """
-    data = exchange_client.get_latest_rates()
+    # 1. Fetch user settings from DB
+    settings = db.query(models.UserSettings).filter(models.UserSettings.id == 1).first()
     
+    # 2. Set defaults if no settings exist yet
+    base_curr = settings.base_currency if settings else "EUR"
+    symbols = settings.selected_currencies if settings else "USD,CZK,GBP"
+    
+    # 3. Fetch data from external API using user's preferences
+    data = exchange_client.get_latest_rates(base=base_curr, symbols=symbols)
+    
+    # Support for both the original DSP format and the real API format
     rates = data.get("rates") or data.get("quotes", {})
-    base_currency = data.get("base") or data.get("source")
+    actual_base = data.get("base") or data.get("source")
     
     return {
-        "base_currency": base_currency,
+        "base_currency": actual_base,
         "date": data.get("date") or data.get("timestamp"),
         "strongest_currency": get_strongest_currency(rates),
         "weakest_currency": get_weakest_currency(rates),
         "average_rate": calculate_average(rates),
-        "analyzed_rates": rates
+        "analyzed_rates": rates,
+        "settings_used": {
+            "base": base_curr,
+            "symbols": symbols
+        }
     }
 
 @app.get("/api/v1/settings")
