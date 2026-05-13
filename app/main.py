@@ -23,8 +23,24 @@ from app.infrastructure.database import Base, engine, get_db
 
 load_dotenv()
 API_KEY = os.getenv("EXCHANGERATE_API_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 Base.metadata.create_all(bind=engine)
+
+# --- STARTUP LOG: show where data is stored/loaded from ---
+_db_url = DATABASE_URL or "sqlite:///./app.db"
+if _db_url.startswith("sqlite"):
+    # Extract path from sqlite:///./app.db  →  app.db
+    _db_file = _db_url.replace("sqlite:///", "").replace("sqlite://", "")
+    logger.info("DATABASE: SQLite local (%s)", os.path.abspath(_db_file))
+else:
+    # Hide credentials, show only host/dbname after @
+    logger.info("DATABASE: PostgreSQL / Neon cloud (%s)", _db_url.split("@")[-1])
+
+if API_KEY:
+    logger.info("EXCHANGE API: exchangerate.host (live, key set)")
+else:
+    logger.warning("EXCHANGE API: no API key — MockExchangeRateClient will be used")
 
 app = FastAPI(
     title="Currency Analyzer",
@@ -107,10 +123,10 @@ def _get_snapshot(date_str: str, db: Session) -> dict:
     """
     existing = db.query(models.DailySnapshot).filter_by(date=date_str).first()
     if existing:
-        logger.info("DB HIT: rates for %s loaded from SQLite", date_str)
+        logger.info("[DB HIT] %s loaded from local SQLite cache", date_str)
         return json.loads(existing.rates_json)
 
-    logger.info("DB MISS: fetching %s from API", date_str)
+    logger.info("[DB MISS] %s not in cache — fetching from exchangerate.host", date_str)
     try:
         raw = exchange_client.get_rates(
             base="USD", symbols="EUR,CZK,GBP,CAD,CHF,JPY,PLN", date=date_str
@@ -136,7 +152,7 @@ def _get_snapshot(date_str: str, db: Session) -> dict:
 
     db.add(models.DailySnapshot(date=date_str, rates_json=json.dumps(clean)))
     db.commit()
-    logger.info("Saved %s to SQLite (%d currencies)", date_str, len(clean))
+    logger.info("[DB WRITE] %s saved to local SQLite (%d currencies)", date_str, len(clean))
     return clean
 
 
@@ -174,7 +190,7 @@ def _apply_cross_rates(clean_rates: dict, api_base: str, target_base: str) -> di
         logger.warning("Cannot convert base from %s to %s — rate missing", api_base, target_base)
         return clean_rates
     recalculated = {sym: rate / conversion for sym, rate in clean_rates.items()}
-    logger.info("Cross-rate: base converted from %s to %s", api_base, target_base)
+    logger.info("[CROSS-RATE] recalculated from %s base to %s", api_base, target_base)
     return recalculated
 
 # ---------------------------------------------------------------------------
@@ -227,7 +243,7 @@ def analyze_rates(
 
     if cache_key in _API_CACHE and (now - _API_CACHE[cache_key]["ts"]) < _CACHE_TTL:
         rates_data = _API_CACHE[cache_key]["data"]
-        logger.info("CACHE HIT for key %s", cache_key)
+        logger.info("[MEM CACHE HIT] returning in-memory data for key: %s", cache_key)
     else:
         request_symbols = symbols if base_curr in symbols else f"{symbols},{base_curr}"
         try:
@@ -244,7 +260,7 @@ def analyze_rates(
 
         if rates_data.get("success") or "quotes" in rates_data:
             _API_CACHE[cache_key] = {"ts": now, "data": rates_data}
-            logger.info("API CALL cached for key %s", cache_key)
+            logger.info("[MEM CACHE WRITE] data from exchangerate.host cached for key: %s", cache_key)
 
     clean_rates, api_base = _normalize_rates(rates_data)
     clean_rates = _apply_cross_rates(clean_rates, api_base, base_curr)

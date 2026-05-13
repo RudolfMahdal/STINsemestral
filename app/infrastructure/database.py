@@ -1,22 +1,23 @@
 import os
+
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
+_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
 
-if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
-    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# Render / Heroku ship "postgres://" which SQLAlchemy 2.x doesn't accept
+if _DATABASE_URL.startswith("postgres://"):
+    _DATABASE_URL = _DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-    )
-else:
-    engine = create_engine(SQLALCHEMY_DATABASE_URL)
+_connect_args = {"check_same_thread": False} if _DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(_DATABASE_URL, connect_args=_connect_args)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
+
+class Base(DeclarativeBase):
+    pass
+
 
 def get_db():
     db = SessionLocal()
