@@ -21,6 +21,8 @@
         button { background: #3498db; color: white; border: none; cursor: pointer; }
         button:hover { background: #2980b9; }
         .success-msg { color: #27ae60; font-weight: bold; display: none; margin-left: 10px; }
+        .period-avg-box { text-align: center; margin-bottom: 10px; font-size: 16px; font-weight: bold; }
+        .period-avg-box span { color: #e74c3c; font-size: 18px; }
     </style>
 </head>
 <body>
@@ -28,12 +30,10 @@
 <div class="container">
     <h1>Currency Analyzer 📈</h1>
 
-    <!-- Global Error Banner -->
     <div id="app-error" style="display: none; background: #f8d7da; color: #721c24; padding: 10px; border: 1px solid #f5c6cb; border-radius: 5px; margin-bottom: 20px;">
         <strong>Error:</strong> <span id="error-text"></span>
     </div>
 
-    <!-- Login Section -->
     <div class="auth-box" id="auth-section">
         <h3>Admin Login (Required for API)</h3>
         <input type="text" id="username" placeholder="Username" value="admin">
@@ -42,7 +42,6 @@
         <p id="error-msg" style="color: red; display: none;">Login failed. Check credentials.</p>
     </div>
 
-    <!-- Settings Section -->
     <div class="settings-box" id="settings-section" style="display: none;">
         <h3>⚙️ Configuration</h3>
         <label>Base Currency:</label>
@@ -50,28 +49,33 @@
         
         <label style="margin-left: 15px;">Compare to (comma separated):</label>
         <input type="text" id="input-symbols" style="width: 200px;">
-        <label style="margin-left: 15px;">Trend (dní):</label>
-
+        <br><br>
+        
+        <label>Trend (days):</label>
         <input type="number" id="input-days" style="width: 60px;" min="1" max="30" value="7">
-        <label style="margin-left: 15px;">Graf (měna):</label>
+        
+        <label style="margin-left: 15px;">Chart (currency):</label>
         <input type="text" id="input-chart-currency" style="width: 60px;">
+        
         <button onclick="saveSettings()" style="margin-left: 10px; background: #2ecc71;">Save & Recalculate</button>
         <span id="save-msg" class="success-msg">Saved!</span>
     </div>
 
-    <div class="control-group">
-        <label for="historyDate">Historická data (YYYY-MM-DD):</label>
-        <div style="display: flex; gap: 10px; align-items: center;">
+    <div class="control-group" id="history-control" style="display: none;">
+        <label for="historyDate">Historical data (YYYY-MM-DD):</label>
+        <div style="display: flex; gap: 10px; align-items: center; margin-top: 5px;">
             <input type="date" id="historyDate" style="flex: 1;">
-            <button id="clearHistoryBtn" type="button" style="background-color: #6c757d; white-space: nowrap;">Zpět na Live</button>
+            <button id="clearHistoryBtn" type="button" style="background-color: #6c757d; white-space: nowrap;">Back to Live</button>
         </div>
     </div>
 
-    <div style="width: 100%; max-width: 800px; margin: 30px auto;">
-        <canvas id="trendsChart"></canvas>
+    <div id="chart-container" style="display: none; width: 100%; max-width: 800px; margin: 30px auto;">
+        <div class="period-avg-box">
+            Period Average: <span id="period-avg-val">-</span>
+        </div>
+        <canvas id="trendsChart" style="display:block;"></canvas>
     </div>
 
-    <!-- Data Section -->
     <div id="data-section" style="display: none;">
         <h2>Analysis Results</h2>
         <p>Base Currency: <strong id="base-curr">-</strong> | Date: <span id="date-val">-</span></p>
@@ -127,65 +131,104 @@
         const errDiv = document.getElementById('app-error');
         if (errDiv) errDiv.style.display = 'none';
     }
-    let myChart = null; // Globální proměnná pro graf, abychom ho mohli při updatu mazat
+    
+
+    let myChart = null;
+
+    function formatRate(val) {
+        if (val === null || val === undefined) return '-';
+        if (val === 0) return '0';
+        // Always show 4 significant digits after leading zeros
+        const magnitude = Math.floor(Math.log10(Math.abs(val)));
+        const decimals = magnitude >= 0 ? 4 : -magnitude + 4;
+        return val.toFixed(decimals);
+    } 
 
     async function loadGraph() {
-    const days = document.getElementById('input-days')?.value || 7;
-    try {
-        const response = await fetch(`/api/v1/trends?days=${days}`, {
-            headers: getAuthHeaders()
-        });
-        
-        if (!response.ok) {
-            console.error("Trends API error:", response.status);
-            return;
-        }
-        
-        const data = await response.json();
-        const ctx = document.getElementById('trendsChart').getContext('2d');
-        const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8'];
-        const datasets = [];
-        let colorIndex = 0;
-        
-        for (const [currency, values] of Object.entries(data.datasets)) {
-            datasets.push({
-                label: currency,
-                data: values,
-                borderColor: colors[colorIndex % colors.length],
-                backgroundColor: colors[colorIndex % colors.length],
-                fill: false,
-                tension: 0.1
+        const days = document.getElementById('input-days')?.value || 7;
+        try {
+            const response = await fetch(`/api/v1/trends?days=${days}`, {
+                headers: getAuthHeaders()
             });
-            colorIndex++;
-        }
-        
-        if (myChart) myChart.destroy();
-        
-        const baseCurr = document.getElementById('input-base')?.value || 'EUR';
-        
-        myChart = new Chart(ctx, {
-            type: 'line',
-            data: { labels: data.labels, datasets: datasets },
-            options: {
-                responsive: true,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: `Kurzy vůči ${baseCurr} (posledních ${days} dní)`
-                    }
-                },
-                interaction: { mode: 'index', intersect: false }
+            
+            if (!response.ok) {
+                console.error("Trends API error:", response.status);
+                return;
             }
-        });
-    } catch (e) {
-        console.error("loadGraph() error:", e);
+            
+            const data = await response.json();
+            
+            // Set Period Average
+            const avgVal = document.getElementById('period-avg-val');
+            if (data.period_average && avgVal) {
+                avgVal.innerText = formatRate(data.period_average);
+            } else if (avgVal) {
+                avgVal.innerText = "-";
+            }
+
+            const ctx = document.getElementById('trendsChart').getContext('2d');
+            const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8'];
+            const datasets = [];
+            let colorIndex = 0;
+            
+            for (const [currency, values] of Object.entries(data.datasets)) {
+                datasets.push({
+                    label: currency,
+                    data: values,
+                    borderColor: colors[colorIndex % colors.length],
+                    backgroundColor: colors[colorIndex % colors.length],
+                    fill: false,
+                    tension: 0.1
+                });
+                colorIndex++;
+            }
+            
+            if (myChart) myChart.destroy();
+            
+            const baseCurr = document.getElementById('input-base')?.value || 'EUR';
+            const chartCurr = document.getElementById('input-chart-currency')?.value || '';
+            const chartLabel = chartCurr ? `${chartCurr} / ${baseCurr}` : `vs ${baseCurr}`;
+            
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: data.labels, datasets: datasets },
+                options: {
+                    responsive: true,
+                    devicePixelRatio: window.devicePixelRatio || 2,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `${chartLabel} (last ${days} days)`
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => `${ctx.dataset.label}: ${formatRate(ctx.parsed.y)}`
+                            }
+                        }
+                    },
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        y: {
+                            ticks: {
+                                callback: val => formatRate(val)
+                            }
+                        }
+                    }
+                }
+            });
+            
+            document.getElementById('chart-container').style.display = 'block';
+        } catch (e) {
+            console.error("loadGraph() error:", e);
+        }
     }
-}
+
     async function loadData() {
         hideError(); 
         const authError = document.getElementById('error-msg');
         const dataSection = document.getElementById('data-section');
         const settingsSection = document.getElementById('settings-section');
+        const historyControl = document.getElementById('history-control');
         
         try {
             const selectedDate = document.getElementById("historyDate").value;
@@ -199,6 +242,7 @@
                 if (authError) authError.style.display = 'block';
                 if (dataSection) dataSection.style.display = 'none';
                 if (settingsSection) settingsSection.style.display = 'none';
+                if (historyControl) historyControl.style.display = 'none';
                 return;
             }
             
@@ -212,12 +256,14 @@
             if (authError) authError.style.display = 'none';
             if (dataSection) dataSection.style.display = 'block';
             if (settingsSection) settingsSection.style.display = 'block';
+            if (historyControl) historyControl.style.display = 'block';
 
             document.getElementById('input-base').value = data.settings_used.base;
             document.getElementById('input-symbols').value = data.settings_used.symbols;
 
             document.getElementById('base-curr').innerText = data.base_currency;
             document.getElementById('input-chart-currency').value = data.settings_used.chart_currency || 'CZK';
+            
             let dateStr = data.date;
             if (typeof data.date === 'number') {
                 dateStr = new Date(data.date * 1000).toLocaleDateString();
@@ -229,7 +275,7 @@
             
             const avgElem = document.getElementById('average');
             if (data.average_rate && typeof data.average_rate === 'number') {
-                avgElem.innerText = data.average_rate.toFixed(4);
+                avgElem.innerText = formatRate(data.average_rate);
             } else {
                 avgElem.innerText = data.average_rate;
             }
@@ -238,10 +284,11 @@
             tbody.innerHTML = "";
             if (data.analyzed_rates) {
                 for (const [currency, rate] of Object.entries(data.analyzed_rates)) {
-                    const formatted = typeof rate === 'number' ? rate.toFixed(4) : rate;
+                    const formatted = typeof rate === 'number' ? formatRate(rate) : rate;
                     tbody.innerHTML += `<tr><td>${currency}</td><td>${formatted}</td></tr>`;
                 }
             }
+            
             loadGraph();
 
         } catch (error) {
@@ -252,44 +299,44 @@
 
     document.getElementById("clearHistoryBtn").addEventListener("click", () => {
         document.getElementById("historyDate").value = "";
-        loadData(); // Správný název tvé funkce
+        loadData(); 
     });
 
     async function saveSettings() {
-    hideError();
-    const newBase = document.getElementById('input-base').value.toUpperCase().trim();
-    const newSymbols = document.getElementById('input-symbols').value.toUpperCase().trim();
-    const newChartCurr = document.getElementById('input-chart-currency').value.toUpperCase().trim();
-    
-    if (!newBase || !newSymbols || !newChartCurr) {
-        showError("Všechna pole musí být vyplněna.");
-        return;
-    }
-
-    const payload = {
-        base_currency: newBase,
-        selected_currencies: newSymbols,
-        chart_currency: newChartCurr  // NOVÉ
-    };
-
-    try {
-        const response = await fetch('/api/v1/settings', {
-            method: 'PUT',
-            headers: getAuthHeaders(),
-            body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        if (response.ok) {
-            const msg = document.getElementById('save-msg');
-            if (msg) { msg.style.display = 'inline'; setTimeout(() => msg.style.display = 'none', 2000); }
-            loadData();
-        } else {
-            showError(data.detail || "Failed to save settings.");
+        hideError();
+        const newBase = document.getElementById('input-base').value.toUpperCase().trim();
+        const newSymbols = document.getElementById('input-symbols').value.toUpperCase().trim();
+        const newChartCurr = document.getElementById('input-chart-currency').value.toUpperCase().trim();
+        
+        if (!newBase || !newSymbols || !newChartCurr) {
+            showError("All fields must be filled.");
+            return;
         }
-    } catch (error) {
-        showError("Network error while saving settings.");
+
+        const payload = {
+            base_currency: newBase,
+            selected_currencies: newSymbols,
+            chart_currency: newChartCurr
+        };
+
+        try {
+            const response = await fetch('/api/v1/settings', {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (response.ok) {
+                const msg = document.getElementById('save-msg');
+                if (msg) { msg.style.display = 'inline'; setTimeout(() => msg.style.display = 'none', 2000); }
+                loadData();
+            } else {
+                showError(data.detail || "Failed to save settings.");
+            }
+        } catch (error) {
+            showError("Network error while saving settings.");
+        }
     }
-}
     
 </script>
 
