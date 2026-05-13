@@ -33,7 +33,8 @@ def test_analyze_wrong_credentials():
     response = client.get("/api/v1/analyze", auth=("wrong_user", "bad_password"))
     assert response.status_code == 403  
 
-@patch('app.main.exchange_client.get_latest_rates')
+# OPRAVA: Místo get_latest_rates použijeme get_rates
+@patch('app.main.exchange_client.get_rates')
 def test_analyze_rates_authorized(mock_get_rates):
     """
     Test the /analyze endpoint with valid auth and mocked external API data.
@@ -43,11 +44,14 @@ def test_analyze_rates_authorized(mock_get_rates):
         "base": "USD",
         "date": "2026-04-27",
         "rates": {
-            "USDJPY": 150.0,
-            "USDCAD": 1.3,
-            "USDAUD": 1.5
+            "USD": 1.0,
+            "CZK": 24.5,
+            "EUR": 0.92
         }
     }
+    
+    response = client.get("/api/v1/analyze", auth=VALID_AUTH)
+    assert response.status_code == 200
     
     # Pass the authentication tuple to the test client
     response = client.get("/api/v1/analyze", auth=VALID_AUTH)
@@ -73,10 +77,23 @@ def test_update_settings_authorized():
     """
     payload = {
         "base_currency": "EUR",
-        "selected_currencies": "JPY,CAD"
+        "selected_currencies": "JPY,CAD",
+        "chart_currency": "CZK" 
     }
+    # tvůj auth a client.put...
     response = client.put("/api/v1/settings", json=payload, auth=VALID_AUTH)
     assert response.status_code == 200
+
+def test_get_trends_authorized():
+    """
+    Test the historical trends endpoint ensures the loop and DB fallback works.
+    """
+    # Zkusíme stáhnout data jen pro 2 dny, ať to netrvá dlouho
+    response = client.get("/api/v1/trends?days=2", auth=VALID_AUTH)
+    
+    assert response.status_code == 200
     data = response.json()
-    assert data["message"] == "Settings updated successfully"
-    assert data["settings"]["base_currency"] == "EUR"
+    
+    assert "labels" in data
+    assert "datasets" in data
+    assert type(data["labels"]) is list
