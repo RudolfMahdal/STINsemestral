@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <title>Currency Analyzer Dashboard</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f9; color: #333; }
@@ -49,9 +50,25 @@
         
         <label style="margin-left: 15px;">Compare to (comma separated):</label>
         <input type="text" id="input-symbols" style="width: 200px;">
-        
+        <label style="margin-left: 15px;">Trend (dní):</label>
+
+        <input type="number" id="input-days" style="width: 60px;" min="1" max="30" value="7">
+        <label style="margin-left: 15px;">Graf (měna):</label>
+        <input type="text" id="input-chart-currency" style="width: 60px;">
         <button onclick="saveSettings()" style="margin-left: 10px; background: #2ecc71;">Save & Recalculate</button>
         <span id="save-msg" class="success-msg">Saved!</span>
+    </div>
+
+    <div class="control-group">
+        <label for="historyDate">Historická data (YYYY-MM-DD):</label>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <input type="date" id="historyDate" style="flex: 1;">
+            <button id="clearHistoryBtn" type="button" style="background-color: #6c757d; white-space: nowrap;">Zpět na Live</button>
+        </div>
+    </div>
+
+    <div style="width: 100%; max-width: 800px; margin: 30px auto;">
+        <canvas id="trendsChart"></canvas>
     </div>
 
     <!-- Data Section -->
@@ -110,7 +127,60 @@
         const errDiv = document.getElementById('app-error');
         if (errDiv) errDiv.style.display = 'none';
     }
+    let myChart = null; // Globální proměnná pro graf, abychom ho mohli při updatu mazat
 
+    async function loadGraph() {
+    const days = document.getElementById('input-days')?.value || 7;
+    try {
+        const response = await fetch(`/api/v1/trends?days=${days}`, {
+            headers: getAuthHeaders()
+        });
+        
+        if (!response.ok) {
+            console.error("Trends API error:", response.status);
+            return;
+        }
+        
+        const data = await response.json();
+        const ctx = document.getElementById('trendsChart').getContext('2d');
+        const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8'];
+        const datasets = [];
+        let colorIndex = 0;
+        
+        for (const [currency, values] of Object.entries(data.datasets)) {
+            datasets.push({
+                label: currency,
+                data: values,
+                borderColor: colors[colorIndex % colors.length],
+                backgroundColor: colors[colorIndex % colors.length],
+                fill: false,
+                tension: 0.1
+            });
+            colorIndex++;
+        }
+        
+        if (myChart) myChart.destroy();
+        
+        const baseCurr = document.getElementById('input-base')?.value || 'EUR';
+        
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: data.labels, datasets: datasets },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: `Kurzy vůči ${baseCurr} (posledních ${days} dní)`
+                    }
+                },
+                interaction: { mode: 'index', intersect: false }
+            }
+        });
+    } catch (e) {
+        console.error("loadGraph() error:", e);
+    }
+}
     async function loadData() {
         hideError(); 
         const authError = document.getElementById('error-msg');
@@ -118,7 +188,12 @@
         const settingsSection = document.getElementById('settings-section');
         
         try {
-            const response = await fetch('/api/v1/analyze', { method: 'GET', headers: getAuthHeaders() });
+            const selectedDate = document.getElementById("historyDate").value;
+            let apiUrl = "/api/v1/analyze";
+            if (selectedDate) {
+                apiUrl += `?date=${selectedDate}`;
+            }
+            const response = await fetch(apiUrl, { method: 'GET', headers: getAuthHeaders() });
             
             if (response.status === 401 || response.status === 403) {
                 if (authError) authError.style.display = 'block';
@@ -141,12 +216,8 @@
             document.getElementById('input-base').value = data.settings_used.base;
             document.getElementById('input-symbols').value = data.settings_used.symbols;
 
-            if (data.settings_used.base !== data.base_currency) {
-                showError(`Warning: You requested base '${data.settings_used.base}', but the Free API forced '${data.base_currency}'.`);
-            }
-
             document.getElementById('base-curr').innerText = data.base_currency;
-            
+            document.getElementById('input-chart-currency').value = data.settings_used.chart_currency || 'CZK';
             let dateStr = data.date;
             if (typeof data.date === 'number') {
                 dateStr = new Date(data.date * 1000).toLocaleDateString();
@@ -167,55 +238,59 @@
             tbody.innerHTML = "";
             if (data.analyzed_rates) {
                 for (const [currency, rate] of Object.entries(data.analyzed_rates)) {
-                    tbody.innerHTML += `<tr><td>${currency}</td><td>${rate}</td></tr>`;
+                    const formatted = typeof rate === 'number' ? rate.toFixed(4) : rate;
+                    tbody.innerHTML += `<tr><td>${currency}</td><td>${formatted}</td></tr>`;
                 }
             }
+            loadGraph();
 
         } catch (error) {
             console.error('Error:', error);
             showError("Network error: Could not connect to the API.");
         }
-    }
+    } 
+
+    document.getElementById("clearHistoryBtn").addEventListener("click", () => {
+        document.getElementById("historyDate").value = "";
+        loadData(); // Správný název tvé funkce
+    });
 
     async function saveSettings() {
-        hideError();
-        const newBase = document.getElementById('input-base').value.toUpperCase().trim();
-        const newSymbols = document.getElementById('input-symbols').value.toUpperCase().trim();
-        
-        if (!newBase || !newSymbols) {
-            showError("Base currency and symbols cannot be empty.");
-            return;
-        }
-
-        const payload = {
-            base_currency: newBase,
-            selected_currencies: newSymbols
-        };
-
-        try {
-            const response = await fetch('/api/v1/settings', { 
-                method: 'PUT', 
-                headers: getAuthHeaders(),
-                body: JSON.stringify(payload)
-            });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                const msg = document.getElementById('save-msg');
-                if (msg) {
-                    msg.style.display = 'inline';
-                    setTimeout(() => msg.style.display = 'none', 2000);
-                }
-                loadData();
-            } else {
-                showError(data.detail || "Failed to save settings.");
-            }
-        } catch (error) {
-            console.error('Error saving settings:', error);
-            showError("Network error while saving settings.");
-        }
+    hideError();
+    const newBase = document.getElementById('input-base').value.toUpperCase().trim();
+    const newSymbols = document.getElementById('input-symbols').value.toUpperCase().trim();
+    const newChartCurr = document.getElementById('input-chart-currency').value.toUpperCase().trim();
+    
+    if (!newBase || !newSymbols || !newChartCurr) {
+        showError("Všechna pole musí být vyplněna.");
+        return;
     }
+
+    const payload = {
+        base_currency: newBase,
+        selected_currencies: newSymbols,
+        chart_currency: newChartCurr  // NOVÉ
+    };
+
+    try {
+        const response = await fetch('/api/v1/settings', {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (response.ok) {
+            const msg = document.getElementById('save-msg');
+            if (msg) { msg.style.display = 'inline'; setTimeout(() => msg.style.display = 'none', 2000); }
+            loadData();
+        } else {
+            showError(data.detail || "Failed to save settings.");
+        }
+    } catch (error) {
+        showError("Network error while saving settings.");
+    }
+}
+    
 </script>
 
 </body>
