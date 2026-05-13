@@ -42,6 +42,9 @@ if API_KEY:
 else:
     logger.warning("EXCHANGE API: no API key — MockExchangeRateClient will be used")
 
+# Human-readable DB label reused in runtime logs
+_DB_LABEL = "Neon/PostgreSQL" if not _db_url.startswith("sqlite") else f"SQLite ({os.path.abspath(_db_file)})"
+
 app = FastAPI(
     title="Currency Analyzer",
     description="REST API for currency rate analysis (STIN 2026)",
@@ -123,10 +126,10 @@ def _get_snapshot(date_str: str, db: Session) -> dict:
     """
     existing = db.query(models.DailySnapshot).filter_by(date=date_str).first()
     if existing:
-        logger.info("[DB HIT] %s loaded from local SQLite cache", date_str)
+        logger.info("[DB HIT] %s loaded from %s", date_str, _DB_LABEL)
         return json.loads(existing.rates_json)
 
-    logger.info("[DB MISS] %s not in cache — fetching from exchangerate.host", date_str)
+    logger.info("[DB MISS] %s not in %s — fetching from exchangerate.host", date_str, _DB_LABEL)
     try:
         raw = exchange_client.get_rates(
             base="USD", symbols="EUR,CZK,GBP,CAD,CHF,JPY,PLN", date=date_str
@@ -152,7 +155,7 @@ def _get_snapshot(date_str: str, db: Session) -> dict:
 
     db.add(models.DailySnapshot(date=date_str, rates_json=json.dumps(clean)))
     db.commit()
-    logger.info("[DB WRITE] %s saved to local SQLite (%d currencies)", date_str, len(clean))
+    logger.info("[DB WRITE] %s saved to %s (%d currencies)", date_str, _DB_LABEL, len(clean))
     return clean
 
 
