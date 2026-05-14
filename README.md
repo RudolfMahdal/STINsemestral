@@ -1,6 +1,5 @@
 # Currency Analyzer API & Dashboard
 [![Tests and Coverage](https://github.com/RudolfMahdal/STINsemestral/actions/workflows/coverage.yml/badge.svg)](https://github.com/RudolfMahdal/STINsemestral/actions/workflows/coverage.yml)
-![Coverage](https://img.shields.io/badge/Coverage-83%25-brightgreen)
 
 A REST API and web dashboard for fetching, caching, and analyzing foreign exchange rates. Created as a semester project for the Software Engineering (STIN) course.
 
